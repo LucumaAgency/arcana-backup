@@ -246,6 +246,22 @@ function create_or_update_course_page($stm_course_id, $json) {
         return false;
     }
 
+    // Inyectar la imagen destacada del stm-courses al course
+    $stm_course = get_post($stm_course_id);
+    if ($stm_course && $stm_course->post_type === 'stm-courses') {
+        $thumbnail_id = get_post_thumbnail_id($stm_course_id);
+        if ($thumbnail_id) {
+            $result = set_post_thumbnail($course_page_id, $thumbnail_id);
+            if ($result) {
+                error_log("[create_or_update_course_page] Imagen destacada (thumbnail_id {$thumbnail_id}) asignada correctamente al course_page_id {$course_page_id}");
+            } else {
+                error_log("[create_or_update_course_page] Error: No se pudo asignar la imagen destacada al course_page_id {$course_page_id}");
+            }
+        } else {
+            error_log("[create_or_update_course_page] No se encontró imagen destacada para stm_course_id {$stm_course_id}");
+        }
+    }
+
     // Obtener el ID de la imagen de fondo desde el campo ACF o /wp/v2/pages
     $json['background_image'] = get_background_image_from_course_page($course_page_id, $json['title'], $json['instructor_photo']);
 
@@ -408,7 +424,6 @@ function verify_create_course_pages_nonce() {
 }
 add_action('wp_ajax_create_initial_course_pages', 'verify_create_course_pages_nonce', 1);
 
-
 // Shortcode para renderizar el contenido del curso en páginas de tipo 'course'
 add_shortcode('course_content', function ($atts) {
     // Definir atributos del shortcode, con post_id opcional
@@ -457,12 +472,6 @@ add_shortcode('course_content', function ($atts) {
     // Renderizar el contenido, permitiendo HTML seguro
     return wp_kses_post($course_data['content']);
 });
-
-
-
-
-
-
 
 // Shortcode para mostrar las redes sociales del instructor en páginas de tipo 'course'
 add_shortcode('instructor_socials', function ($atts) {
@@ -602,8 +611,6 @@ add_shortcode('instructor_socials', function ($atts) {
     error_log("[instructor_socials] Salida generada para stm_course_id {$stm_course_id}");
     return $output;
 });
-
-
 
 // Shortcode para mostrar la galería de imágenes del curso en páginas de tipo 'course'
 add_shortcode('course_gallery', function ($atts) {
@@ -802,5 +809,120 @@ add_shortcode('course_gallery', function ($atts) {
 
     error_log("[course_gallery] Galería generada para stm_course_id {$stm_course_id} con {$valid_images} imágenes");
     return $output;
+});
+
+// Shortcode para inyectar la imagen destacada de stm-courses a su course relacionado (puedes mantenerlo si lo necesitas)
+add_shortcode('inject_featured_image', function ($atts) {
+    // Definir atributos del shortcode
+    $atts = shortcode_atts(array(
+        'post_id' => 0, // Por defecto 0, para usar la lógica de búsqueda
+    ), $atts, 'inject_featured_image');
+
+    $course_page_id = get_the_ID(); // ID de la página 'course' actual
+    $output = '<script>';
+    $output .= 'console.log("[inject_featured_image] Iniciando para course_page_id: ' . $course_page_id . ', post_id proporcionado: ' . $atts['post_id'] . '");';
+
+    // Verificar que estamos en un post de tipo 'course'
+    if (get_post_type($course_page_id) !== 'course') {
+        $output .= 'console.log("[inject_featured_image] Error: No es un post de tipo \'course\'. Tipo actual: ' . get_post_type($course_page_id) . '");';
+        $output .= '</script>';
+        return $output;
+    }
+
+    $stm_course_id = absint($atts['post_id']); // ID proporcionado manualmente, si existe
+
+    // Si no se proporcionó post_id, buscar el stm-courses relacionado
+    if (!$stm_course_id) {
+        $args = [
+            'post_type' => 'stm-courses',
+            'posts_per_page' => 1,
+            'post_status' => 'publish',
+            'meta_query' => [
+                [
+                    'key' => 'related_course_id',
+                    'value' => $course_page_id,
+                    'compare' => '=',
+                ],
+            ],
+        ];
+        $stm_courses = get_posts($args);
+
+        if (empty($stm_courses)) {
+            $output .= 'console.log("[inject_featured_image] Error: No se encontró un stm-courses relacionado con course_page_id: ' . $course_page_id . '");';
+            $output .= '</script>';
+            return $output;
+        }
+
+        $stm_course_id = $stm_courses[0]->ID;
+        $output .= 'console.log("[inject_featured_image] Encontrado stm-courses ID: ' . $stm_course_id . ' para course_page_id: ' . $course_page_id . '");';
+    } else {
+        $output .= 'console.log("[inject_featured_image] Usando stm-courses ID proporcionado: ' . $stm_course_id . '");';
+    }
+
+    // Verificar si el stm-courses existe
+    $stm_course = get_post($stm_course_id);
+    if (!$stm_course || $stm_course->post_type !== 'stm-courses') {
+        $output .= 'console.log("[inject_featured_image] Error: El stm-courses ID ' . $stm_course_id . ' no existe o no es de tipo \'stm-courses\'");';
+        $output .= '</script>';
+        return $output;
+    }
+
+    // Obtener la imagen destacada del stm-courses
+    $thumbnail_id = get_post_thumbnail_id($stm_course_id);
+    if (!$thumbnail_id) {
+        $output .= 'console.log("[inject_featured_image] Error: No se encontró imagen destacada para stm_course_id ' . $stm_course_id . '");';
+        $output .= '</script>';
+        return $output;
+    }
+    $output .= 'console.log("[inject_featured_image] Imagen destacada encontrada para stm_course_id ' . $stm_course_id . ': thumbnail_id ' . $thumbnail_id . '");';
+
+    // Asignar la imagen destacada al course
+    $result = set_post_thumbnail($course_page_id, $thumbnail_id);
+    if ($result) {
+        $output .= 'console.log("[inject_featured_image] Imagen destacada (thumbnail_id ' . $thumbnail_id . ') asignada correctamente al course_page_id ' . $course_page_id . '");';
+    } else {
+        $output .= 'console.log("[inject_featured_image] Error: No se pudo asignar la imagen destacada al course_page_id ' . $course_page_id . '");';
+    }
+
+    $output .= 'console.log("[inject_featured_image] Proceso completado");';
+    $output .= '</script>';
+
+    return $output;
+});
+
+// Añadir estilo background-image a la clase .selling-page-bkg en el frontend
+add_action('wp_footer', function() {
+    // Solo ejecutar en páginas de tipo course
+    if (!is_singular('course')) {
+        return;
+    }
+
+    $course_page_id = get_the_ID();
+    error_log("[wp_footer] Verificando course_page_id: {$course_page_id}");
+
+    // Obtener la imagen destacada del course
+    $thumbnail_id = get_post_thumbnail_id($course_page_id);
+    if (!$thumbnail_id) {
+        error_log("[wp_footer] Error: No se encontró imagen destacada para course_page_id {$course_page_id}");
+        return;
+    }
+
+    $thumbnail_url = wp_get_attachment_image_url($thumbnail_id, 'full');
+    if (!$thumbnail_url) {
+        error_log("[wp_footer] Error: No se pudo obtener la URL de la imagen destacada para thumbnail_id {$thumbnail_id}");
+        return;
+    }
+    error_log("[wp_footer] URL de la imagen destacada encontrada: {$thumbnail_url}");
+
+    // Inyectar el estilo en el footer
+    echo '<style>
+        .selling-page-bkg {
+            background-image: url("' . esc_url($thumbnail_url) . '");
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+        }
+    </style>';
+    error_log("[wp_footer] Estilo background-image inyectado en .selling-page-bkg con URL: {$thumbnail_url}");
 });
 ?>

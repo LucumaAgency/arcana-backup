@@ -283,7 +283,7 @@ function create_or_update_course_page($stm_course_id, $json) {
             update_post_meta($course_product_id, '_stock_status', 'instock');
             update_post_meta($course_product_id, '_price', $json['price'] ?? 0);
             update_post_meta($course_product_id, '_regular_price', $json['price'] ?? 0);
-            $course_product_link = get_permalink($course_product_id);
+            $course_product_link = "/?add-to-cart={$course_product_id}&quantity=1";
             error_log("Producto creado para course ID {$course_page_id}: {$course_title} (ID: {$course_product_id}, Link: {$course_product_link})");
             
             // Almacenar el enlace en el campo ACF
@@ -313,7 +313,7 @@ function create_or_update_course_page($stm_course_id, $json) {
             update_post_meta($webinar_product_id, '_stock_status', 'instock');
             update_post_meta($webinar_product_id, '_price', $json['price'] ?? 0);
             update_post_meta($webinar_product_id, '_regular_price', $json['price'] ?? 0);
-            $webinar_product_link = get_permalink($webinar_product_id);
+            $webinar_product_link = "/?add-to-cart={$webinar_product_id}&quantity=1";
             error_log("Producto webinar creado para course ID {$course_page_id}: Webinar - {$course_title} (ID: {$webinar_product_id}, Link: {$webinar_product_link})");
             
             // Almacenar el enlace en el campo ACF

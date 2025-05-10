@@ -192,9 +192,8 @@ function get_background_image_from_course_page($course_page_id, $course_title, $
         if ($background_image_id) {
             update_field('field_6819abc58a2b', $background_image_id, $course_page_id);
         } else {
-            error_log("No se pudo obtener un ID de imagen para instructor_photo: {$instructor_photo}. Estableciendo 0 como valor por defecto.");
-            $background_image_id = 0;
-            update_field('field_6819abc58a2b', 0, $course_page_id);
+            error_log("No se pudo obtener un ID de imagen para instructor_photo: {$instructor_photo}. No se establecerá ningún valor por defecto.");
+            return 0; // No establecer 0 en el campo, dejarlo vacío
         }
     }
 
@@ -202,7 +201,7 @@ function get_background_image_from_course_page($course_page_id, $course_title, $
 }
 
 /**
- * 3. Crear o actualizar una página de tipo 'course'
+ * 3. Crear o actualizar una página de tipo 'course' y productos asociados
  */
 function create_or_update_course_page($stm_course_id, $json) {
     error_log("Creando/actualizando página para stm-courses ID: {$stm_course_id}");
@@ -259,6 +258,74 @@ function create_or_update_course_page($stm_course_id, $json) {
             }
         } else {
             error_log("[create_or_update_course_page] No se encontró imagen destacada para stm_course_id {$stm_course_id}");
+        }
+    }
+
+    // Crear productos de WooCommerce
+    // Verificar si WooCommerce está activo
+    if (!class_exists('WooCommerce')) {
+        error_log("WooCommerce no está activo. No se pueden crear productos para course ID {$course_page_id}");
+    } else {
+        $course_title = isset($json['title']) ? $json['title'] : "Course {$stm_course_id}";
+        
+        // Producto 1: Nombre del curso
+        $course_product = [
+            'post_title' => $course_title,
+            'post_type' => 'product',
+            'post_status' => 'publish',
+            'post_author' => get_current_user_id(),
+        ];
+        $course_product_id = wp_insert_post($course_product, true);
+        if ($course_product_id && !is_wp_error($course_product_id)) {
+            // Establecer tipo de producto como simple
+            wp_set_object_terms($course_product_id, 'simple', 'product_type');
+            update_post_meta($course_product_id, '_visibility', 'visible');
+            update_post_meta($course_product_id, '_stock_status', 'instock');
+            update_post_meta($course_product_id, '_price', $json['price'] ?? 0);
+            update_post_meta($course_product_id, '_regular_price', $json['price'] ?? 0);
+            $course_product_link = get_permalink($course_product_id);
+            error_log("Producto creado para course ID {$course_page_id}: {$course_title} (ID: {$course_product_id}, Link: {$course_product_link})");
+            
+            // Almacenar el enlace en el campo ACF
+            $result = update_field('field_681e16f6a4555', $course_product_link, $course_page_id); // Reemplaza con tu clave real
+            if ($result) {
+                error_log("Enlace del producto del curso almacenado en ACF para course ID {$course_page_id}: {$course_product_link}");
+            } else {
+                error_log("Error al almacenar el enlace del producto del curso en ACF para course ID {$course_page_id}");
+            }
+        } else {
+            $error_message = is_wp_error($course_product_id) ? $course_product_id->get_error_message() : 'Error desconocido';
+            error_log("Error al crear producto para course ID {$course_page_id}: {$error_message}");
+        }
+
+        // Producto 2: Webinar - Nombre del curso
+        $webinar_product = [
+            'post_title' => "Webinar - {$course_title}",
+            'post_type' => 'product',
+            'post_status' => 'publish',
+            'post_author' => get_current_user_id(),
+        ];
+        $webinar_product_id = wp_insert_post($webinar_product, true);
+        if ($webinar_product_id && !is_wp_error($webinar_product_id)) {
+            // Establecer tipo de producto como simple
+            wp_set_object_terms($webinar_product_id, 'simple', 'product_type');
+            update_post_meta($webinar_product_id, '_visibility', 'visible');
+            update_post_meta($webinar_product_id, '_stock_status', 'instock');
+            update_post_meta($webinar_product_id, '_price', $json['price'] ?? 0);
+            update_post_meta($webinar_product_id, '_regular_price', $json['price'] ?? 0);
+            $webinar_product_link = get_permalink($webinar_product_id);
+            error_log("Producto webinar creado para course ID {$course_page_id}: Webinar - {$course_title} (ID: {$webinar_product_id}, Link: {$webinar_product_link})");
+            
+            // Almacenar el enlace en el campo ACF
+            $result = update_field('field_681e16fea4556', $webinar_product_link, $course_page_id); // Reemplaza con tu clave real
+            if ($result) {
+                error_log("Enlace del producto webinar almacenado en ACF para course ID {$course_page_id}: {$webinar_product_link}");
+            } else {
+                error_log("Error al almacenar el enlace del producto webinar en ACF para course ID {$course_page_id}");
+            }
+        } else {
+            $error_message = is_wp_error($webinar_product_id) ? $webinar_product_id->get_error_message() : 'Error desconocido';
+            error_log("Error al crear producto webinar para course ID {$course_page_id}: {$error_message}");
         }
     }
 
@@ -811,7 +878,7 @@ add_shortcode('course_gallery', function ($atts) {
     return $output;
 });
 
-// Shortcode para inyectar la imagen destacada de stm-courses a su course relacionado (puedes mantenerlo si lo necesitas)
+// Shortcode para inyectar la imagen destacada de stm-courses a su course relacionado
 add_shortcode('inject_featured_image', function ($atts) {
     // Definir atributos del shortcode
     $atts = shortcode_atts(array(

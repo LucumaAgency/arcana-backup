@@ -12,6 +12,9 @@
 define('DEFAULT_INSTRUCTOR_PHOTO_URL', 'https://secure.gravatar.com/avatar/960ae940db3ec6809086442871c87a389e05b3da89bc95b29d6202c14b036c2b?s=200&d=mm&r=g');
 define('DEFAULT_IMAGE_ID', 123); // Replace with actual attachment ID
 
+// Include utilities
+require_once plugin_dir_path(__FILE__) . 'course-utilities.php';
+
 // Shortcode to render the instructor's photo
 add_shortcode('instructor_photo', function ($atts) {
     $atts = shortcode_atts([
@@ -20,7 +23,7 @@ add_shortcode('instructor_photo', function ($atts) {
 
     $post_id = $atts['post_id'];
 
-    $instructor_photo_link = get_field('field_6818dc2febac', $post_id);
+    $instructor_photo_link = get_cached_acf_field('field_6818dc2febac', $post_id);
     $photo_url = ($instructor_photo_link && isset($instructor_photo_link['url']) && !empty($instructor_photo_link['url'])) 
         ? esc_url($instructor_photo_link['url']) 
         : DEFAULT_INSTRUCTOR_PHOTO_URL;
@@ -35,28 +38,10 @@ add_shortcode('course_content', function ($atts) {
     ], $atts, 'course_content');
 
     $course_page_id = get_the_ID();
-    $stm_course_id = absint($atts['post_id']);
+    $stm_course_id = absint($atts['post_id']) ?: get_related_stm_course_id($course_page_id);
 
     if (!$stm_course_id) {
-        $args = [
-            'post_type' => 'stm-courses',
-            'posts_per_page' => 1,
-            'post_status' => 'publish',
-            'meta_query' => [
-                [
-                    'key' => 'related_course_id',
-                    'value' => $course_page_id,
-                    'compare' => '=',
-                ],
-            ],
-        ];
-        $stm_courses = get_posts($args);
-
-        if (empty($stm_courses)) {
-            return '';
-        }
-
-        $stm_course_id = $stm_courses[0]->ID;
+        return '';
     }
 
     $course_data = get_course_json_data($stm_course_id);
@@ -78,27 +63,9 @@ add_shortcode('instructor_socials', function ($atts) {
         return '';
     }
 
-    $stm_course_id = absint($atts['post_id']);
+    $stm_course_id = absint($atts['post_id']) ?: get_related_stm_course_id($course_page_id);
     if (!$stm_course_id) {
-        $args = [
-            'post_type' => 'stm-courses',
-            'posts_per_page' => 1,
-            'post_status' => 'publish',
-            'meta_query' => [
-                [
-                    'key' => 'related_course_id',
-                    'value' => $course_page_id,
-                    'compare' => '=',
-                ],
-            ],
-        ];
-        $stm_courses = get_posts($args);
-
-        if (empty($stm_courses)) {
-            return '';
-        }
-
-        $stm_course_id = $stm_courses[0]->ID;
+        return '';
     }
 
     $stm_course = get_post($stm_course_id);
@@ -191,27 +158,9 @@ add_shortcode('course_gallery', function ($atts) {
         return '';
     }
 
-    $stm_course_id = absint($atts['post_id']);
+    $stm_course_id = absint($atts['post_id']) ?: get_related_stm_course_id($course_page_id);
     if (!$stm_course_id) {
-        $args = [
-            'post_type' => 'stm-courses',
-            'posts_per_page' => 1,
-            'post_status' => 'publish',
-            'meta_query' => [
-                [
-                    'key' => 'related_course_id',
-                    'value' => $course_page_id,
-                    'compare' => '=',
-                ],
-            ],
-        ];
-        $stm_courses = get_posts($args);
-
-        if (empty($stm_courses)) {
-            return '';
-        }
-
-        $stm_course_id = $stm_courses[0]->ID;
+        return '';
     }
 
     $stm_course = get_post($stm_course_id);
@@ -223,12 +172,12 @@ add_shortcode('course_gallery', function ($atts) {
         return '';
     }
 
-    $field_object = get_field_object('gallery_portfolio', $stm_course_id);
+    $field_object = get_cached_acf_field('gallery_portfolio', $stm_course_id);
     if (!$field_object) {
         return '';
     }
 
-    $gallery_images = get_field('gallery_portfolio', $stm_course_id);
+    $gallery_images = get_cached_acf_field('gallery_portfolio', $stm_course_id);
     if (empty($gallery_images) || !is_array($gallery_images)) {
         $gallery_images = [
             [
@@ -238,13 +187,6 @@ add_shortcode('course_gallery', function ($atts) {
                 'caption' => 'Default Image'
             ]
         ];
-    }
-
-    $valid_images = 0;
-    foreach ($gallery_images as $image) {
-        if (isset($image['url']) && !empty($image['url'])) {
-            $valid_images++;
-        }
     }
 
     $output = '<div class="course-gallery">';
@@ -299,7 +241,9 @@ add_shortcode('course_gallery', function ($atts) {
         }
     </style>';
 
-    wp_enqueue_script('jquery');
+    if (!wp_script_is('jquery', 'enqueued')) {
+        wp_enqueue_script('jquery');
+    }
     $output .= '<script>
         jQuery(document).ready(function($) {
             $(".gallery-lightbox").on("click", function(e) {
@@ -363,27 +307,9 @@ add_shortcode('inject_featured_image', function ($atts) {
         return '';
     }
 
-    $stm_course_id = absint($atts['post_id']);
+    $stm_course_id = absint($atts['post_id']) ?: get_related_stm_course_id($course_page_id);
     if (!$stm_course_id) {
-        $args = [
-            'post_type' => 'stm-courses',
-            'posts_per_page' => 1,
-            'post_status' => 'publish',
-            'meta_query' => [
-                [
-                    'key' => 'related_course_id',
-                    'value' => $course_page_id,
-                    'compare' => '=',
-                ],
-            ],
-        ];
-        $stm_courses = get_posts($args);
-
-        if (empty($stm_courses)) {
-            return '';
-        }
-
-        $stm_course_id = $stm_courses[0]->ID;
+        return '';
     }
 
     $stm_course = get_post($stm_course_id);

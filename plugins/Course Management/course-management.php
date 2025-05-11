@@ -11,8 +11,9 @@
 // Define default image ID for fallback
 define('DEFAULT_IMAGE_ID', 123); // Replace with actual attachment ID
 
-// Include the custom endpoint
+// Include the custom endpoint and utilities
 require_once get_stylesheet_directory() . '/api/course-endpoint.php';
+require_once plugin_dir_path(__FILE__) . 'course-utilities.php';
 
 /**
  * 1. Initial setup and retrieval of JSON data from the custom endpoint
@@ -66,11 +67,11 @@ function get_course_json_data($course_id) {
 }
 
 /**
- * 2. Retrieve the background image ID from the ACF field of the course post or from /wp/v2/pages
+ * 2. Retrieve the background image ID from the ACF field or use the featured image
  */
-function get_background_image_from_course_page($course_page_id, $course_title) {
+function get_background_image_from_course_page($course_page_id, $stm_course_id) {
     // Attempt to get the ACF field course_background_image (now as Image ID)
-    $background_image_id = get_field('field_6819abc58a2b', $course_page_id);
+    $background_image_id = get_cached_acf_field('field_6819abc58a2b', $course_page_id);
     if ($background_image_id && is_numeric($background_image_id)) {
         return $background_image_id;
     }
@@ -85,59 +86,15 @@ function get_background_image_from_course_page($course_page_id, $course_title) {
         }
     }
 
-    // If not found in ACF field, search in /wp/v2/pages
-    $response = wp_remote_get(
-        home_url('/wp-json/wp/v2/pages?per_page=100'),
-        [
-            'timeout' => 10,
-            'sslverify' => false,
-        ]
-    );
-
-    if (is_wp_error($response)) {
-        return DEFAULT_IMAGE_ID;
-    }
-
-    $response_code = wp_remote_retrieve_response_code($response);
-    if ($response_code !== 200) {
-        return DEFAULT_IMAGE_ID;
-    }
-
-    $body = wp_remote_retrieve_body($response);
-    $pages = json_decode($body, true);
-    if (json_last_error() !== JSON_ERROR_NONE) {
-        return DEFAULT_IMAGE_ID;
-    }
-
-    if (!$pages || !is_array($pages)) {
-        return DEFAULT_IMAGE_ID;
-    }
-
-    // Search for a page with a title matching the course
-    $background_image_id = 0;
-    foreach ($pages as $page) {
-        $page_title = isset($page['title']['rendered']) ? $page['title']['rendered'] : '';
-        if (strtolower($page_title) === strtolower($course_title)) {
-            $content = isset($page['content']['rendered']) ? $page['content']['rendered'] : '';
-            if ($content) {
-                $pattern = '/background-image:\s*url\("([^"]+)"\)/i';
-                if (preg_match($pattern, $content, $matches)) {
-                    $image_url = esc_url($matches[1]);
-                    $background_image_id = get_attachment_id_from_url($image_url);
-                    if ($background_image_id) {
-                        update_field('field_6819abc58a2b', $background_image_id, $course_page_id);
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-    if (!$background_image_id) {
+    // Use the featured image from stm-courses as fallback
+    $thumbnail_id = get_post_thumbnail_id($stm_course_id);
+    if ($thumbnail_id) {
+        $background_image_id = $thumbnail_id;
+    } else {
         $background_image_id = DEFAULT_IMAGE_ID;
-        update_field('field_6819abc58a2b', $background_image_id, $course_page_id);
     }
 
+    update_field('field_6819abc58a2b', $background_image_id, $course_page_id);
     return $background_image_id;
 }
 
@@ -233,8 +190,8 @@ function create_or_update_course_page($stm_course_id, $json) {
         }
     }
 
-    // Retrieve background image ID from ACF or /wp/v2/pages
-    $json['background_image'] = get_background_image_from_course_page($course_page_id, $json['title']);
+    // Retrieve background image ID from ACF or featured image
+    $json['background_image'] = get_background_image_from_course_page($course_page_id, $stm_course_id);
 
     // Convert numeric values to strings where needed
     $json['views'] = strval($json['views']);
@@ -275,20 +232,29 @@ function create_or_update_course_page($stm_course_id, $json) {
  * 4. Initial creation of pages for all existing stm-courses
  */
 function create_initial_course_pages() {
+    check_ajax_referer('create_initial_course_pages_nonce', 'nonce');
+
     if (!current_user_can('manage_options')) {
-        wp_die('You do not have permission to perform this action.');
+        wp_send_json_error(['message' => 'Permission denied']);
     }
+
+    $batch_size = 5; // Number of courses to process per batch
+    $offset = isset($_POST['offset']) ? absint($_POST['offset']) : 0;
 
     $args = [
         'post_type' => 'stm-courses',
-        'posts_per_page' => -1,
+        'posts_per_page' => $batch_size,
         'post_status' => 'publish',
+        'offset' => $offset,
     ];
     $stm_courses = get_posts($args);
 
     if (empty($stm_courses)) {
-        wp_die('No courses found to process.');
+        wp_send_json_success(['complete' => true, 'redirect' => admin_url('edit.php?post_type=course&message=pages_created')]);
     }
+
+    $total_courses = wp_count_posts('stm-courses')->publish;
+    $processed = $offset + count($stm_courses);
 
     foreach ($stm_courses as $stm_course) {
         $json = get_course_json_data($stm_course->ID);
@@ -297,8 +263,11 @@ function create_initial_course_pages() {
         }
     }
 
-    wp_redirect(admin_url('edit.php?post_type=course&message=pages_created'));
-    exit;
+    wp_send_json_success([
+        'complete' => false,
+        'offset' => $offset + $batch_size,
+        'progress' => min(100, round(($processed / $total_courses) * 100)),
+    ]);
 }
 add_action('wp_ajax_create_initial_course_pages', 'create_initial_course_pages');
 
@@ -310,7 +279,7 @@ function update_course_page_on_save($post_id) {
         return;
     }
 
-    $update_action = get_field('update_course_page', $post_id);
+    $update_action = get_cached_acf_field('update_course_page', $post_id);
     if ($update_action !== 'update') {
         return;
     }
@@ -336,27 +305,49 @@ function add_create_course_pages_button() {
     ?>
     <script type="text/javascript">
         jQuery(document).ready(function($) {
-            $('.wrap h1').after('<a href="#" id="create-course-pages-btn" class="page-title-action">Create Course Pages</a>');
+            $('.wrap h1').after('<a href="#" id="create-course-pages-btn" class="page-title-action">Create Course Pages</a><div id="course-creation-progress" style="margin-top:10px;display:none;">Processing: <span id="progress-percentage">0%</span></div>');
+
             $('#create-course-pages-btn').on('click', function(e) {
                 e.preventDefault();
                 if (confirm('Are you sure you want to create Course pages for all courses?')) {
-                    $.ajax({
-                        url: ajaxurl,
-                        type: 'POST',
-                        data: {
-                            action: 'create_initial_course_pages',
-                            nonce: '<?php echo wp_create_nonce('create_initial_course_pages_nonce'); ?>'
-                        },
-                        success: function(response) {
-                            alert('Pages created. Redirecting...');
-                            window.location = '<?php echo admin_url('edit.php?post_type=course&message=pages_created'); ?>';
-                        },
-                        error: function(xhr, status, error) {
-                            alert('Error creating pages: ' + error);
-                        }
-                    });
+                    $('#create-course-pages-btn').prop('disabled', true);
+                    $('#course-creation-progress').show();
+                    processCourseBatch(0);
                 }
             });
+
+            function processCourseBatch(offset) {
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'create_initial_course_pages',
+                        nonce: '<?php echo wp_create_nonce('create_initial_course_pages_nonce'); ?>',
+                        offset: offset
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            if (response.data.complete) {
+                                $('#progress-percentage').text('100%');
+                                alert('Pages created. Redirecting...');
+                                window.location = response.data.redirect;
+                            } else {
+                                $('#progress-percentage').text(response.data.progress + '%');
+                                processCourseBatch(response.data.offset);
+                            }
+                        } else {
+                            $('#course-creation-progress').hide();
+                            $('#create-course-pages-btn').prop('disabled', false);
+                            alert('Error: ' + (response.data.message || 'Unknown error'));
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        $('#course-creation-progress').hide();
+                        $('#create-course-pages-btn').prop('disabled', false);
+                        alert('Error creating pages: ' + error);
+                    }
+                });
+            }
         });
     </script>
     <?php
@@ -368,7 +359,7 @@ add_action('admin_footer', 'add_create_course_pages_button');
  */
 function verify_create_course_pages_nonce() {
     if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'create_initial_course_pages_nonce')) {
-        wp_die('Security error.');
+        wp_send_json_error(['message' => 'Security error']);
     }
 }
 add_action('wp_ajax_create_initial_course_pages', 'verify_create_course_pages_nonce', 1);

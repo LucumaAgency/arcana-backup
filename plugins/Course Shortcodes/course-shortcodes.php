@@ -12,8 +12,21 @@
 define('DEFAULT_INSTRUCTOR_PHOTO_URL', 'https://secure.gravatar.com/avatar/960ae940db3ec6809086442871c87a389e05b3da89bc95b29d6202c14b036c2b?s=200&d=mm&r=g');
 define('DEFAULT_IMAGE_ID', 123); // Replace with actual attachment ID
 
-// Include utilities
-require_once plugin_dir_path(__FILE__) . 'course-utilities.php';
+// Include utilities if available
+$utilities_path = WP_PLUGIN_DIR . '/course-utilities/course-utilities.php';
+if (file_exists($utilities_path)) {
+    require_once $utilities_path;
+} else {
+    // Log error and prevent fatal error
+    error_log('Course Utilities plugin not found at ' . $utilities_path);
+    add_action('admin_notices', function() {
+        ?>
+        <div class="notice notice-error">
+            <p><strong>Course Shortcodes Error:</strong> The Course Utilities plugin is required but was not found. Please ensure it is installed and activated.</p>
+        </div>
+        <?php
+    });
+}
 
 // Shortcode to render the instructor's photo
 add_shortcode('instructor_photo', function ($atts) {
@@ -23,7 +36,7 @@ add_shortcode('instructor_photo', function ($atts) {
 
     $post_id = $atts['post_id'];
 
-    $instructor_photo_link = get_cached_acf_field('field_6818dc2febac', $post_id);
+    $instructor_photo_link = function_exists('get_cached_acf_field') ? get_cached_acf_field('field_6818dc2febac', $post_id) : get_field('field_6818dc2febac', $post_id);
     $photo_url = ($instructor_photo_link && isset($instructor_photo_link['url']) && !empty($instructor_photo_link['url'])) 
         ? esc_url($instructor_photo_link['url']) 
         : DEFAULT_INSTRUCTOR_PHOTO_URL;
@@ -38,7 +51,7 @@ add_shortcode('course_content', function ($atts) {
     ], $atts, 'course_content');
 
     $course_page_id = get_the_ID();
-    $stm_course_id = absint($atts['post_id']) ?: get_related_stm_course_id($course_page_id);
+    $stm_course_id = absint($atts['post_id']) ?: (function_exists('get_related_stm_course_id') ? get_related_stm_course_id($course_page_id) : 0);
 
     if (!$stm_course_id) {
         return '';
@@ -63,7 +76,7 @@ add_shortcode('instructor_socials', function ($atts) {
         return '';
     }
 
-    $stm_course_id = absint($atts['post_id']) ?: get_related_stm_course_id($course_page_id);
+    $stm_course_id = absint($atts['post_id']) ?: (function_exists('get_related_stm_course_id') ? get_related_stm_course_id($course_page_id) : 0);
     if (!$stm_course_id) {
         return '';
     }
@@ -158,7 +171,7 @@ add_shortcode('course_gallery', function ($atts) {
         return '';
     }
 
-    $stm_course_id = absint($atts['post_id']) ?: get_related_stm_course_id($course_page_id);
+    $stm_course_id = absint($atts['post_id']) ?: (function_exists('get_related_stm_course_id') ? get_related_stm_course_id($course_page_id) : 0);
     if (!$stm_course_id) {
         return '';
     }
@@ -172,12 +185,12 @@ add_shortcode('course_gallery', function ($atts) {
         return '';
     }
 
-    $field_object = get_cached_acf_field('gallery_portfolio', $stm_course_id);
+    $field_object = function_exists('get_cached_acf_field') ? get_cached_acf_field('gallery_portfolio', $stm_course_id) : get_field('gallery_portfolio', $stm_course_id);
     if (!$field_object) {
         return '';
     }
 
-    $gallery_images = get_cached_acf_field('gallery_portfolio', $stm_course_id);
+    $gallery_images = function_exists('get_cached_acf_field') ? get_cached_acf_field('gallery_portfolio', $stm_course_id) : get_field('gallery_portfolio', $stm_course_id);
     if (empty($gallery_images) || !is_array($gallery_images)) {
         $gallery_images = [
             [
@@ -307,7 +320,7 @@ add_shortcode('inject_featured_image', function ($atts) {
         return '';
     }
 
-    $stm_course_id = absint($atts['post_id']) ?: get_related_stm_course_id($course_page_id);
+    $stm_course_id = absint($atts['post_id']) ?: (function_exists('get_related_stm_course_id') ? get_related_stm_course_id($course_page_id) : 0);
     if (!$stm_course_id) {
         return '';
     }

@@ -11,9 +11,24 @@
 // Define default image ID for fallback
 define('DEFAULT_IMAGE_ID', 123); // Replace with actual attachment ID
 
-// Include the custom endpoint and utilities
+// Include the custom endpoint
 require_once get_stylesheet_directory() . '/api/course-endpoint.php';
-require_once plugin_dir_path(__FILE__) . 'course-utilities.php';
+
+// Include utilities if available
+$utilities_path = WP_PLUGIN_DIR . '/course-utilities/course-utilities.php';
+if (file_exists($utilities_path)) {
+    require_once $utilities_path;
+} else {
+    // Log error and prevent fatal error
+    error_log('Course Utilities plugin not found at ' . $utilities_path);
+    add_action('admin_notices', function() {
+        ?>
+        <div class="notice notice-error">
+            <p><strong>Course Management Error:</strong> The Course Utilities plugin is required but was not found. Please ensure it is installed and activated.</p>
+        </div>
+        <?php
+    });
+}
 
 /**
  * 1. Initial setup and retrieval of JSON data from the custom endpoint
@@ -71,7 +86,7 @@ function get_course_json_data($course_id) {
  */
 function get_background_image_from_course_page($course_page_id, $stm_course_id) {
     // Attempt to get the ACF field course_background_image (now as Image ID)
-    $background_image_id = get_cached_acf_field('field_6819abc58a2b', $course_page_id);
+    $background_image_id = function_exists('get_cached_acf_field') ? get_cached_acf_field('field_6819abc58a2b', $course_page_id) : get_field('field_6819abc58a2b', $course_page_id);
     if ($background_image_id && is_numeric($background_image_id)) {
         return $background_image_id;
     }
@@ -79,7 +94,7 @@ function get_background_image_from_course_page($course_page_id, $stm_course_id) 
     // If the current value is a URL (migration case), convert to ID
     $raw_value = get_post_meta($course_page_id, 'course_background_image', true);
     if ($raw_value && filter_var($raw_value, FILTER_VALIDATE_URL)) {
-        $background_image_id = get_attachment_id_from_url($raw_value);
+        $background_image_id = function_exists('get_attachment_id_from_url') ? get_attachment_id_from_url($raw_value) : 0;
         if ($background_image_id) {
             update_field('field_6819abc58a2b', $background_image_id, $course_page_id);
             return $background_image_id;
@@ -279,7 +294,7 @@ function update_course_page_on_save($post_id) {
         return;
     }
 
-    $update_action = get_cached_acf_field('update_course_page', $post_id);
+    $update_action = function_exists('get_cached_acf_field') ? get_cached_acf_field('update_course_page', $post_id) : get_field('update_course_page', $post_id);
     if ($update_action !== 'update') {
         return;
     }
